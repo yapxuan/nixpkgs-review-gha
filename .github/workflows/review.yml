@@ -1,0 +1,123 @@
+name: review
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Pull Request Number"
+        required: true
+        type: number
+      x86_64-linux:
+        description: "Run on x86_64-linux"
+        required: true
+        type: boolean
+        default: true
+      aarch64-linux:
+        description: "Run on aarch64-linux"
+        required: true
+        type: boolean
+        default: true
+      x86_64-darwin:
+        description: "Run on x86_64-darwin"
+        required: true
+        type: boolean
+        default: true
+      aarch64-darwin:
+        description: "Run on aarch64-darwin"
+        required: true
+        type: boolean
+        default: true
+      tmate:
+        description: "Start tmate session after nixpkgs-review"
+        required: true
+        type: boolean
+        default: false
+      post-result:
+        description: "Post Result"
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  review:
+    strategy:
+      matrix:
+        system:
+          - x86_64-linux
+          - aarch64-linux
+          - x86_64-darwin
+          - aarch64-darwin
+        exclude:
+          - system: ${{ !inputs.x86_64-linux && 'x86_64-linux' || '' }}
+          - system: ${{ !inputs.aarch64-linux && 'aarch64-linux' || '' }}
+          - system: ${{ !inputs.x86_64-darwin && 'x86_64-darwin' || '' }}
+          - system: ${{ !inputs.aarch64-darwin && 'aarch64-darwin' || '' }}
+    runs-on: >-
+      ${{ (matrix.system == 'x86_64-linux' && 'ubuntu-latest')
+      || (matrix.system == 'aarch64-linux' && 'ubuntu-24.04-arm')
+      || (matrix.system == 'x86_64-darwin' && 'macos-13')
+      || (matrix.system == 'aarch64-darwin' && 'macos-latest') }}
+    outputs:
+      report_x86_64-linux: ${{ steps.report.outputs.report_x86_64-linux }}
+      report_aarch64-linux: ${{ steps.report.outputs.report_aarch64-linux }}
+      report_x86_64-darwin: ${{ steps.report.outputs.report_x86_64-darwin }}
+      report_aarch64-darwin: ${{ steps.report.outputs.report_aarch64-darwin }}
+    steps:
+      - name: install nix
+        uses: DeterminateSystems/nix-installer-action@v16
+      - name: clone nixpkgs
+        uses: actions/checkout@v4
+        with:
+          repository: NixOS/nixpkgs
+      - name: run nixpkgs-review
+        run: nix run .#nixpkgs-review -- pr ${{ inputs.pr }} --no-shell --no-headers --print-result --build-args="-L" || true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: start tmate session
+        uses: mxschmitt/action-tmate@v3
+        if: ${{ inputs.tmate }}
+      - name: generate report
+        id: report
+        run: |
+          base64=$(nix build --no-link --print-out-paths .#coreutils)/bin/base64
+          echo report_${{ matrix.system }}=$($base64 -w0 ~/.cache/nixpkgs-review/pr-${{ inputs.pr }}/report.md) >> "$GITHUB_OUTPUT"
+
+  report:
+    runs-on: ubuntu-latest
+    needs: [review]
+    outputs:
+      report: ${{ steps.report.outputs.report }}
+    steps:
+      - name: generate report
+        id: report
+        run: |
+          cat << EOF > report.md
+          ## \`nixpkgs-review\` result
+
+          Generated using [\`nixpkgs-review\`](https://github.com/Mic92/nixpkgs-review).
+
+          Command: \`nixpkgs-review pr ${{ inputs.pr }}\`
+
+          Logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+
+          echo ${{ needs.review.outputs.report_x86_64-linux }} | base64 -d >> report.md
+          echo ${{ needs.review.outputs.report_aarch64-linux }} | base64 -d >> report.md
+          echo ${{ needs.review.outputs.report_x86_64-darwin }} | base64 -d >> report.md
+          echo ${{ needs.review.outputs.report_aarch64-darwin }} | base64 -d >> report.md
+
+          cat report.md
+          echo report=$(base64 -w0 report.md) >> "$GITHUB_OUTPUT"
+
+  post-result:
+    runs-on: ubuntu-latest
+    needs: [report]
+    if: ${{ inputs.post-result }}
+    environment: post-result
+    steps:
+      - name: fetch report
+        run: echo ${{ needs.report.outputs.report }} | base64 -d > report.md
+      - name: post comment
+        run: gh pr -R NixOS/nixpkgs comment ${{ inputs.pr }} -F report.md
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
