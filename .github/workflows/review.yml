@@ -6,7 +6,7 @@ on:
       pr:
         description: "Pull Request Number"
         required: true
-        type: number
+        type: string
       x86_64-linux:
         description: "Run on x86_64-linux"
         required: true
