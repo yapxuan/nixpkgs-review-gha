@@ -101,7 +101,9 @@ jobs:
         id: report
         run: |
           base64=$(nix build --no-link --print-out-paths .#coreutils)/bin/base64
-          echo report_${{ matrix.system }}=$($base64 -w0 ~/.cache/nixpkgs-review/pr-${{ inputs.pr }}/report.md) >> "$GITHUB_OUTPUT"
+          report=~/.cache/nixpkgs-review/pr-${{ inputs.pr }}/report.md
+          cat $report
+          echo report_${{ matrix.system }}=$($base64 -w0 $report) >> "$GITHUB_OUTPUT"
 
   report:
     runs-on: ubuntu-latest
