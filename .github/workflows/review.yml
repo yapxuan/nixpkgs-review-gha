@@ -1,4 +1,5 @@
 name: review
+run-name: "review #${{ inputs.pr }}"
 
 on:
   workflow_dispatch:
