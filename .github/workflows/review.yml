@@ -33,6 +33,11 @@ on:
         required: true
         type: number
         default: 900
+      attic:
+        description: "Push to attic"
+        required: true
+        type: boolean
+        default: true
       tmate:
         description: "Start tmate session after nixpkgs-review"
         required: true
@@ -68,6 +73,10 @@ jobs:
       report_aarch64-linux: ${{ steps.report.outputs.report_aarch64-linux }}
       report_x86_64-darwin: ${{ steps.report.outputs.report_x86_64-darwin }}
       report_aarch64-darwin: ${{ steps.report.outputs.report_aarch64-darwin }}
+      fetch_cmd_x86_64-linux: ${{ steps.report.outputs.fetch_cmd_x86_64-linux }}
+      fetch_cmd_aarch64-linux: ${{ steps.report.outputs.fetch_cmd_aarch64-linux }}
+      fetch_cmd_x86_64-darwin: ${{ steps.report.outputs.fetch_cmd_x86_64-darwin }}
+      fetch_cmd_aarch64-darwin: ${{ steps.report.outputs.fetch_cmd_aarch64-darwin }}
     steps:
       - name: install nix
         uses: DeterminateSystems/nix-installer-action@v16
@@ -94,6 +103,35 @@ jobs:
         run: nix run .#nixpkgs-review -- pr ${{ inputs.pr }} --no-shell --no-headers --print-result --build-args="-L" || true
         env:
           GITHUB_TOKEN: ${{ github.token }}
+      - name: push results to attic
+        if: ${{ inputs.attic && vars.ATTIC_SERVER != '' && vars.ATTIC_CACHE != '' }}
+        run: |
+          set -ex
+          attic=$(nix build --no-link --print-out-paths .#attic-client)/bin/attic
+          $attic login default "$ATTIC_SERVER" "$ATTIC_TOKEN"
+          $attic cache info "$ATTIC_CACHE"
+          $attic push "$ATTIC_CACHE" ~/.cache/nixpkgs-review/pr-${{ inputs.pr }}/results/*
+          info=$(curl -f -H "Authorization: Bearer ${ATTIC_TOKEN}" "${ATTIC_SERVER}_api/v1/cache-config/${ATTIC_CACHE}")
+          substituter_endpoint=$(jq -r .substituter_endpoint <<< "$info")
+          public_key=$(jq -r .public_key <<< "$info")
+          is_public=$(jq -r .is_public <<< "$info")
+          echo "nix-store -r --add-root nixpkgs-pr-${{ inputs.pr }}-${{ matrix.system }} \\" >> fetch_cmd
+          echo "  --option binary-caches 'https://cache.nixos.org/ $substituter_endpoint' \\" >> fetch_cmd
+          echo "  --option trusted-public-keys '" >> fetch_cmd
+          echo "  cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=" >> fetch_cmd
+          echo "  $public_key" >> fetch_cmd
+          echo -n "  '" >> fetch_cmd
+          ok=0
+          for p in ~/.cache/nixpkgs-review/pr-${{ inputs.pr }}/results/*; do
+            echo -e " \\" >> fetch_cmd
+            echo -n "  $(realpath $p)" >> fetch_cmd
+            ok=1
+          done
+          [[ "$is_public" = "true" ]] && [[ $ok = 1 ]] || rm fetch_cmd
+        env:
+          ATTIC_SERVER: ${{ vars.ATTIC_SERVER }}
+          ATTIC_CACHE: ${{ vars.ATTIC_CACHE }}
+          ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
       - name: start tmate session
         uses: mxschmitt/action-tmate@v3
         if: ${{ inputs.tmate }}
@@ -101,6 +139,10 @@ jobs:
         id: report
         run: |
           base64=$(nix build --no-link --print-out-paths .#coreutils)/bin/base64
+          if [[ -s fetch_cmd ]]; then
+            cat fetch_cmd
+            echo fetch_cmd_${{ matrix.system }}=$($base64 -w0 fetch_cmd) >> "$GITHUB_OUTPUT"
+          fi
           report=~/.cache/nixpkgs-review/pr-${{ inputs.pr }}/report.md
           cat $report
           echo report_${{ matrix.system }}=$($base64 -w0 $report) >> "$GITHUB_OUTPUT"
@@ -114,15 +156,29 @@ jobs:
       - name: generate report
         id: report
         run: |
-          cat << EOF > report.md
-          ## \`nixpkgs-review\` result
+          echo -e "## \`nixpkgs-review\` result\n" >> report.md
+          echo -e "Generated using [\`nixpkgs-review-gha\`](https://github.com/Defelo/nixpkgs-review-gha)\n" >> report.md
+          echo -e "Command: \`nixpkgs-review pr ${{ inputs.pr }}\`\n" >> report.md
+          echo -e "Logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n" >> report.md
 
-          Generated using [\`nixpkgs-review-gha\`](https://github.com/Defelo/nixpkgs-review-gha).
-
-          Command: \`nixpkgs-review pr ${{ inputs.pr }}\`
-
-          Logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          EOF
+          mkdir .tmp
+          cd .tmp
+          echo ${{ needs.review.outputs.fetch_cmd_x86_64-linux }} | base64 -d > x86_64-linux
+          echo ${{ needs.review.outputs.fetch_cmd_aarch64-linux }} | base64 -d > aarch64-linux
+          echo ${{ needs.review.outputs.fetch_cmd_x86_64-darwin }} | base64 -d > x86_64-darwin
+          echo ${{ needs.review.outputs.fetch_cmd_aarch64-darwin }} | base64 -d > aarch64-darwin
+          for system in x86_64-linux aarch64-linux x86_64-darwin aarch64-darwin; do
+            [[ -s $system ]] || continue
+            echo -e "<li><details><summary><code>$system</code></summary>\n\n\`\`\`shell" >> ../cache.md
+            cat $system >> ../cache.md
+            echo -e "\n\`\`\`\n</details></li>" >> ../cache.md
+          done
+          cd ..
+          if [[ -s cache.md ]]; then
+            echo -e "<details><summary>Download packages from cache:</summary><ul>" >> report.md
+            cat cache.md >> report.md
+            echo -e "</ul></details>\n" >> report.md
+          fi
 
           echo ${{ needs.review.outputs.report_x86_64-linux }} | base64 -d >> report.md
           echo ${{ needs.review.outputs.report_aarch64-linux }} | base64 -d >> report.md
