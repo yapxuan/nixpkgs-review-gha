@@ -100,14 +100,14 @@ jobs:
             sleep 10
           done
       - name: run nixpkgs-review
-        run: nix run .#nixpkgs-review -- pr ${{ inputs.pr }} --no-shell --no-headers --print-result --build-args="-L" || true
+        run: nix run github:nixos/nixpkgs/nixos-unstable#nixpkgs-review -- pr ${{ inputs.pr }} --no-shell --no-headers --print-result --build-args="-L" || true
         env:
           GITHUB_TOKEN: ${{ github.token }}
       - name: push results to attic
         if: ${{ inputs.attic && vars.ATTIC_SERVER != '' && vars.ATTIC_CACHE != '' }}
         run: |
           set -ex
-          attic=$(nix build --no-link --print-out-paths .#attic-client)/bin/attic
+          attic=$(nix build --no-link --print-out-paths github:nixos/nixpkgs/nixos-unstable#attic-client)/bin/attic
           $attic login default "$ATTIC_SERVER" "$ATTIC_TOKEN"
           $attic cache info "$ATTIC_CACHE"
           $attic push "$ATTIC_CACHE" ~/.cache/nixpkgs-review/pr-${{ inputs.pr }}/results/*
@@ -138,7 +138,7 @@ jobs:
       - name: generate report
         id: report
         run: |
-          base64=$(nix build --no-link --print-out-paths .#coreutils)/bin/base64
+          base64=$(nix build --no-link --print-out-paths github:nixos/nixpkgs/nixos-unstable#coreutils)/bin/base64
           if [[ -s fetch_cmd ]]; then
             cat fetch_cmd
             echo fetch_cmd_${{ matrix.system }}=$($base64 -w0 fetch_cmd) >> "$GITHUB_OUTPUT"
