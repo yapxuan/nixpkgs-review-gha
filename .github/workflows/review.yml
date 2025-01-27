@@ -141,6 +141,9 @@ jobs:
       - name: fetch report
         run: echo ${{ needs.report.outputs.report }} | base64 -d > report.md
       - name: post comment
-        run: gh pr -R NixOS/nixpkgs comment ${{ inputs.pr }} -F report.md
+        run: |
+          if [[ -n "$GH_TOKEN" ]]; then
+            gh pr -R NixOS/nixpkgs comment ${{ inputs.pr }} -F report.md
+          fi
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
