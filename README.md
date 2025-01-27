@@ -9,6 +9,7 @@ Run [nixpkgs-review](https://github.com/Mic92/nixpkgs-review) in GitHub Actions
 - Wait for [upstream evaluation](https://github.com/NixOS/nixpkgs/blob/master/.github/workflows/eval.yml) to finish before running nixpkgs-review
 - Optionally start a [tmate](https://tmate.io/) session after nixpkgs-review has finished to allow interactive testing/debugging via SSH
 - Push new packages to an [attic](https://github.com/zhaofengli/attic) cache
+- Add a "Run nixpkgs-review" shortcut to pull request pages in nixpkgs
 
 ## Setup
 1. [Fork](https://github.com/Defelo/nixpkgs-review-gha/fork) this repository.
@@ -21,6 +22,7 @@ Run [nixpkgs-review](https://github.com/Mic92/nixpkgs-review) in GitHub Actions
     2. [Create a new variable](https://github.com/Defelo/nixpkgs-review-gha/settings/variables/actions/new) with the name `ATTIC_SERVER` and set it to the value of `$SERVER`
     3. [Create a new variable](https://github.com/Defelo/nixpkgs-review-gha/settings/variables/actions/new) with the name `ATTIC_CACHE` and set it to the value of `$CACHE`
     4. [Create a new secret](https://github.com/Defelo/nixpkgs-review-gha/settings/secrets/actions/new) with the name `ATTIC_TOKEN` and set it's value to the token you generated before.
+5. (optional) Add [`shortcut.js`](shortcut.js) as a user script in your browser for `https://github.com/` for example using the [User JavaScript and CSS chrome extension](https://chromewebstore.google.com/detail/user-javascript-and-css/nbhcbdghjpllgmfilhnhkllmkecfmpld).
 
 ## Usage
 1. Open the [review workflow in the "Actions" tab](../../actions/workflows/review.yml)
