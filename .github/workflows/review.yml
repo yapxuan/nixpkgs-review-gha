@@ -117,7 +117,7 @@ jobs:
           cat << EOF > report.md
           ## \`nixpkgs-review\` result
 
-          Generated using [\`nixpkgs-review\`](https://github.com/Mic92/nixpkgs-review).
+          Generated using [\`nixpkgs-review-gha\`](https://github.com/Defelo/nixpkgs-review-gha).
 
           Command: \`nixpkgs-review pr ${{ inputs.pr }}\`
 
