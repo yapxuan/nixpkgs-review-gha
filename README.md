@@ -7,7 +7,7 @@ Run [nixpkgs-review](https://github.com/Mic92/nixpkgs-review) in GitHub Actions
 - No local setup
 - Automatically post results on the reviewed pull request
 - Wait for [upstream evaluation](https://github.com/NixOS/nixpkgs/blob/master/.github/workflows/eval.yml) to finish before running nixpkgs-review
-- Optionally start a [tmate](https://tmate.io/) session after nixpkgs-review has finished to allow interactive testing/debugging via SSH
+- Optionally start an [upterm](https://upterm.dev/) session after nixpkgs-review has finished to allow interactive testing/debugging via SSH
 - Push new packages to an [attic](https://github.com/zhaofengli/attic) cache
 - Add a "Run nixpkgs-review" shortcut to pull request pages in nixpkgs
 

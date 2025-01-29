@@ -38,8 +38,8 @@ on:
         required: true
         type: boolean
         default: true
-      tmate:
-        description: "Start tmate session after nixpkgs-review"
+      upterm:
+        description: "Start upterm session after nixpkgs-review"
         required: true
         type: boolean
         default: false
@@ -138,9 +138,11 @@ jobs:
           ATTIC_SERVER: ${{ vars.ATTIC_SERVER }}
           ATTIC_CACHE: ${{ vars.ATTIC_CACHE }}
           ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
-      - name: start tmate session
-        uses: mxschmitt/action-tmate@v3
-        if: ${{ inputs.tmate }}
+      - name: start upterm session
+        if: ${{ inputs.upterm }}
+        uses: owenthereal/action-upterm@v1
+        with:
+          limit-access-to-actor: true
       - name: generate report
         id: report
         run: |
