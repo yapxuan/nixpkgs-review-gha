@@ -52,6 +52,7 @@ on:
 jobs:
   review:
     strategy:
+      fail-fast: false
       matrix:
         system:
           - x86_64-linux
