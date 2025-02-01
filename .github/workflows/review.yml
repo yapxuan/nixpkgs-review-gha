@@ -33,6 +33,11 @@ on:
         required: true
         type: number
         default: 900
+      local-eval:
+        description: "Force local eval"
+        required: true
+        type: boolean
+        default: false
       attic:
         description: "Push to attic"
         required: true
@@ -89,7 +94,7 @@ jobs:
         with:
           repository: NixOS/nixpkgs
       - name: wait for upstream eval
-        if: ${{ inputs.upstream-eval-timeout > 0 }}
+        if: ${{ inputs.upstream-eval-timeout > 0 && !inputs.local-eval }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -104,7 +109,15 @@ jobs:
             sleep 10
           done
       - name: run nixpkgs-review
-        run: nix run github:nixos/nixpkgs/nixos-unstable#nixpkgs-review -- pr ${{ inputs.pr }} --no-shell --no-headers --print-result --build-args="-L" || true
+        run: |
+          nix run github:nixos/nixpkgs/nixos-unstable#nixpkgs-review -- \
+            pr ${{ inputs.pr }} \
+            --eval ${{ inputs.local-eval && 'local' || 'auto' }} \
+            --no-shell \
+            --no-headers \
+            --print-result \
+            --build-args="-L" \
+            || true
         env:
           GITHUB_TOKEN: ${{ github.token }}
       - name: push results to attic
