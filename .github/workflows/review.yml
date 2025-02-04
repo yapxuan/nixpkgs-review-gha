@@ -102,7 +102,7 @@ jobs:
           timeout=${{ inputs.upstream-eval-timeout }}
           timeout=${timeout%.*}
           while [[ $(( $(date +%s) - $start )) -lt $timeout ]]; do
-            status=$(gh pr -R nixos/nixpkgs checks ${{ inputs.pr }} --json 'state,name,workflow' -q '.[]|select(.name=="Process" and .workflow=="Eval")|.state')
+            status=$(gh pr -R nixos/nixpkgs checks ${{ inputs.pr }} --json 'state,name,workflow' -q '.[]|select(.name=="Process" and .workflow==".github/workflows/eval.yml")|.state')
             if [[ -z "$status" ]]; then echo "Failed to find eval check"
             else echo "Eval status: ${status}"; fi
             if [[ "$status" = "SUCCESS" ]]; then break; fi
