@@ -83,16 +83,30 @@ jobs:
       fetch_cmd_aarch64-linux: ${{ steps.report.outputs.fetch_cmd_aarch64-linux }}
       fetch_cmd_x86_64-darwin: ${{ steps.report.outputs.fetch_cmd_x86_64-darwin }}
       fetch_cmd_aarch64-darwin: ${{ steps.report.outputs.fetch_cmd_aarch64-darwin }}
+
     steps:
       - name: prepare /nix
         run: sudo mkdir /mnt/nix && sudo mount -m -o bind /mnt/nix /nix
         if: ${{ matrix.system == 'x86_64-linux' || matrix.system == 'aarch64-linux' }}
+
       - name: install nix
         uses: DeterminateSystems/nix-installer-action@v16
+
+      - name: install packages
+        run: |
+          pkgs=(coreutils nixpkgs-review)
+          if [[ ${{ inputs.attic && vars.ATTIC_SERVER != '' && vars.ATTIC_CACHE != '' }} = true ]]; then
+            pkgs+=(attic-client)
+          fi
+          args=()
+          for pkg in ${pkgs[@]}; do args+=("github:nixos/nixpkgs/nixos-unstable#$pkg"); done
+          nix profile install ${args[@]}
+
       - name: clone nixpkgs
         uses: actions/checkout@v4
         with:
           repository: NixOS/nixpkgs
+
       - name: wait for upstream eval
         if: ${{ inputs.upstream-eval-timeout > 0 && !inputs.local-eval }}
         env:
@@ -108,9 +122,10 @@ jobs:
             if [[ "$status" = "SUCCESS" ]]; then break; fi
             sleep 10
           done
+
       - name: run nixpkgs-review
         run: |
-          nix run github:nixos/nixpkgs/nixos-unstable#nixpkgs-review -- \
+          nixpkgs-review -- \
             pr ${{ inputs.pr }} \
             --eval ${{ inputs.local-eval && 'local' || 'auto' }} \
             --no-shell \
@@ -120,16 +135,15 @@ jobs:
             || true
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
       - name: push results to attic
         if: ${{ inputs.attic && vars.ATTIC_SERVER != '' && vars.ATTIC_CACHE != '' }}
         run: |
           set -ex
-          attic=$(nix build --no-link --print-out-paths github:nixos/nixpkgs/nixos-unstable#attic-client)/bin/attic
-          realpath=$(nix build --no-link --print-out-paths github:nixos/nixpkgs/nixos-unstable#coreutils)/bin/realpath
-          $attic login default "$ATTIC_SERVER" "$ATTIC_TOKEN"
-          $attic cache info "$ATTIC_CACHE"
-          ($realpath -qe ~/.cache/nixpkgs-review/pr-${{ inputs.pr }}/results/* || true) > paths
-          $attic push --stdin "$ATTIC_CACHE" < paths
+          attic login default "$ATTIC_SERVER" "$ATTIC_TOKEN"
+          attic cache info "$ATTIC_CACHE"
+          (realpath -qe ~/.cache/nixpkgs-review/pr-${{ inputs.pr }}/results/* || true) > paths
+          attic push --stdin "$ATTIC_CACHE" < paths
           info=$(curl -f -H "Authorization: Bearer ${ATTIC_TOKEN}" "${ATTIC_SERVER}_api/v1/cache-config/${ATTIC_CACHE}")
           substituter_endpoint=$(jq -r .substituter_endpoint <<< "$info")
           public_key=$(jq -r .public_key <<< "$info")
@@ -151,28 +165,30 @@ jobs:
           ATTIC_SERVER: ${{ vars.ATTIC_SERVER }}
           ATTIC_CACHE: ${{ vars.ATTIC_CACHE }}
           ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
+
       - name: start upterm session
         if: ${{ inputs.upterm }}
         uses: owenthereal/action-upterm@v1
         with:
           limit-access-to-actor: true
+
       - name: generate report
         id: report
         run: |
-          base64=$(nix build --no-link --print-out-paths github:nixos/nixpkgs/nixos-unstable#coreutils)/bin/base64
           if [[ -s fetch_cmd ]]; then
             cat fetch_cmd
-            echo fetch_cmd_${{ matrix.system }}=$($base64 -w0 fetch_cmd) >> "$GITHUB_OUTPUT"
+            echo fetch_cmd_${{ matrix.system }}=$(base64 -w0 fetch_cmd) >> "$GITHUB_OUTPUT"
           fi
           report=~/.cache/nixpkgs-review/pr-${{ inputs.pr }}/report.md
           cat $report
-          echo report_${{ matrix.system }}=$($base64 -w0 $report) >> "$GITHUB_OUTPUT"
+          echo report_${{ matrix.system }}=$(base64 -w0 $report) >> "$GITHUB_OUTPUT"
 
   report:
     runs-on: ubuntu-latest
     needs: [review]
     outputs:
       report: ${{ steps.report.outputs.report }}
+
     steps:
       - name: generate report
         id: report
@@ -214,9 +230,11 @@ jobs:
     needs: [report]
     if: ${{ inputs.post-result }}
     environment: post-result
+
     steps:
       - name: fetch report
         run: echo ${{ needs.report.outputs.report }} | base64 -d > report.md
+
       - name: post comment
         run: |
           if [[ -n "$GH_TOKEN" ]]; then
