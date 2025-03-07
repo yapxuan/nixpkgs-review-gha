@@ -38,8 +38,8 @@ on:
         required: true
         type: boolean
         default: false
-      attic:
-        description: "Push to attic"
+      push-to-cache:
+        description: "Push to cache"
         required: true
         type: boolean
         default: true
@@ -95,8 +95,10 @@ jobs:
       - name: install packages
         run: |
           pkgs=(coreutils nixpkgs-review)
-          if [[ ${{ inputs.attic && vars.ATTIC_SERVER != '' && vars.ATTIC_CACHE != '' }} = true ]]; then
+          if [[ ${{ inputs.push-to-cache && vars.ATTIC_SERVER != '' && vars.ATTIC_CACHE != '' }} = true ]]; then
             pkgs+=(attic-client)
+          elif [[ ${{ inputs.push-to-cache && vars.CACHIX_CACHE != '' }} = true ]]; then
+            pkgs+=(cachix)
           fi
           args=()
           for pkg in ${pkgs[@]}; do args+=("github:nixos/nixpkgs/nixos-unstable#$pkg"); done
@@ -136,35 +138,50 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-      - name: push results to attic
-        if: ${{ inputs.attic && vars.ATTIC_SERVER != '' && vars.ATTIC_CACHE != '' }}
+      - name: push results to cache
+        if: ${{ inputs.push-to-cache && ((vars.ATTIC_SERVER != '' && vars.ATTIC_CACHE != '') || vars.CACHIX_CACHE != '') }}
         run: |
           set -ex
-          attic login default "$ATTIC_SERVER" "$ATTIC_TOKEN"
-          attic cache info "$ATTIC_CACHE"
+
           (realpath -qe ~/.cache/nixpkgs-review/pr-${{ inputs.pr }}/results/* || true) > paths
-          attic push --stdin "$ATTIC_CACHE" < paths
-          info=$(curl -f -H "Authorization: Bearer ${ATTIC_TOKEN}" "${ATTIC_SERVER}_api/v1/cache-config/${ATTIC_CACHE}")
-          substituter_endpoint=$(jq -r .substituter_endpoint <<< "$info")
-          public_key=$(jq -r .public_key <<< "$info")
-          is_public=$(jq -r .is_public <<< "$info")
+          [[ -s paths ]] || exit 0
+
+          if [[ ${{ vars.ATTIC_SERVER != '' && vars.ATTIC_CACHE != '' }} = true ]]; then
+            attic login default "$ATTIC_SERVER" "$ATTIC_TOKEN"
+            attic cache info "$ATTIC_CACHE"
+            attic push --stdin "$ATTIC_CACHE" < paths
+            info=$(curl -f -H "Authorization: Bearer ${ATTIC_TOKEN}" "${ATTIC_SERVER}_api/v1/cache-config/${ATTIC_CACHE}")
+            substituter_endpoint=$(jq -r .substituter_endpoint <<< "$info")
+            public_key=$(jq -r .public_key <<< "$info")
+            is_public=$(jq -r .is_public <<< "$info")
+          elif [[ ${{ vars.CACHIX_CACHE != '' }} = true ]]; then
+            [[ -n "$CACHIX_SIGNING_KEY" ]] || unset CACHIX_SIGNING_KEY
+            cachix push "$CACHIX_CACHE" < paths
+            info=$(curl -f -H "Authorization: Bearer ${CACHIX_AUTH_TOKEN}" "https://app.cachix.org/api/v1/cache/${CACHIX_CACHE}")
+            substituter_endpoint=$(jq -r .uri <<< "$info")
+            public_key=$(jq -r '.publicSigningKeys[]' <<< "$info")
+            is_public=$(jq -r .isPublic <<< "$info")
+          fi
+
+          [[ "$is_public" = true ]] || exit 0
+
           echo "nix-store -r --add-root nixpkgs-pr-${{ inputs.pr }}-${{ matrix.system }} \\" >> fetch_cmd
           echo "  --option binary-caches 'https://cache.nixos.org/ $substituter_endpoint' \\" >> fetch_cmd
           echo "  --option trusted-public-keys '" >> fetch_cmd
           echo "  cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=" >> fetch_cmd
           echo "  $public_key" >> fetch_cmd
           echo -n "  '" >> fetch_cmd
-          ok=0
           for p in $(cat paths); do
             echo -e " \\" >> fetch_cmd
             echo -n "  $p" >> fetch_cmd
-            ok=1
           done
-          [[ "$is_public" = "true" ]] && [[ $ok = 1 ]] || rm fetch_cmd
         env:
           ATTIC_SERVER: ${{ vars.ATTIC_SERVER }}
           ATTIC_CACHE: ${{ vars.ATTIC_CACHE }}
           ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
+          CACHIX_CACHE: ${{ vars.CACHIX_CACHE }}
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          CACHIX_SIGNING_KEY: ${{ secrets.CACHIX_SIGNING_KEY }}
 
       - name: start upterm session
         if: ${{ inputs.upterm }}
