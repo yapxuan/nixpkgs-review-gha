@@ -28,11 +28,6 @@ on:
         required: true
         type: boolean
         default: true
-      upstream-eval-timeout:
-        description: "How long to wait for upstream eval (in seconds)"
-        required: true
-        type: number
-        default: 900
       local-eval:
         description: "Force local eval"
         required: true
@@ -110,13 +105,12 @@ jobs:
           repository: NixOS/nixpkgs
 
       - name: wait for upstream eval
-        if: ${{ inputs.upstream-eval-timeout > 0 && !inputs.local-eval }}
+        if: ${{ !inputs.local-eval }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           start=$(date +%s)
-          timeout=${{ inputs.upstream-eval-timeout }}
-          timeout=${timeout%.*}
+          timeout=900
           while [[ $(( $(date +%s) - $start )) -lt $timeout ]]; do
             status=$(gh pr -R nixos/nixpkgs checks ${{ inputs.pr }} --json 'state,name,workflow' -q '.[]|select(.name=="Process" and (.workflow=="Eval" or .workflow==".github/workflows/eval.yml"))|.state')
             if [[ -z "$status" ]]; then echo "Failed to find eval check"
