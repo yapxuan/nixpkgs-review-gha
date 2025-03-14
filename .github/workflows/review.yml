@@ -48,6 +48,11 @@ on:
         required: true
         type: boolean
         default: true
+      approve-on-success:
+        description: "Approve PR on review success"
+        required: true
+        type: boolean
+        default: false
 
 jobs:
   review:
@@ -89,7 +94,7 @@ jobs:
 
       - name: install packages
         run: |
-          pkgs=(coreutils nixpkgs-review)
+          pkgs=(coreutils nixpkgs-review jq)
           if [[ ${{ inputs.push-to-cache && vars.ATTIC_SERVER != '' && vars.ATTIC_CACHE != '' }} = true ]]; then
             pkgs+=(attic-client)
           elif [[ ${{ inputs.push-to-cache && vars.CACHIX_CACHE != '' }} = true ]]; then
@@ -190,15 +195,17 @@ jobs:
             cat fetch_cmd
             echo fetch_cmd_${{ matrix.system }}=$(base64 -w0 fetch_cmd) >> "$GITHUB_OUTPUT"
           fi
-          report=~/.cache/nixpkgs-review/pr-${{ inputs.pr }}/report.md
-          cat $report
-          echo report_${{ matrix.system }}=$(base64 -w0 $report) >> "$GITHUB_OUTPUT"
+          dir=~/.cache/nixpkgs-review/pr-${{ inputs.pr }}
+          cat $dir/report.md
+          report=$(jq -c '.+{$md}' $dir/report.json --rawfile md $dir/report.md | base64 -w0)
+          echo report_${{ matrix.system }}=$report >> "$GITHUB_OUTPUT"
 
   report:
     runs-on: ubuntu-latest
     needs: [review]
     outputs:
       report: ${{ steps.report.outputs.report }}
+      success: ${{ steps.report.outputs.success }}
 
     steps:
       - name: generate report
@@ -228,18 +235,25 @@ jobs:
             echo -e "</ul></details>\n" >> report.md
           fi
 
-          echo ${{ needs.review.outputs.report_x86_64-linux }} | base64 -d >> report.md
-          echo ${{ needs.review.outputs.report_aarch64-linux }} | base64 -d >> report.md
-          echo ${{ needs.review.outputs.report_x86_64-darwin }} | base64 -d >> report.md
-          echo ${{ needs.review.outputs.report_aarch64-darwin }} | base64 -d >> report.md
+          mkdir reports
+          echo ${{ needs.review.outputs.report_x86_64-linux }} | base64 -d > reports/x86_64-linux.json
+          echo ${{ needs.review.outputs.report_aarch64-linux }} | base64 -d > reports/aarch64-linux.json
+          echo ${{ needs.review.outputs.report_x86_64-darwin }} | base64 -d > reports/x86_64-darwin.json
+          echo ${{ needs.review.outputs.report_aarch64-darwin }} | base64 -d > reports/aarch64-darwin.json
+          for system in x86_64-linux aarch64-linux x86_64-darwin aarch64-darwin; do
+            if [[ -s reports/$system.json ]]; then
+              jq -r '.md' reports/$system.json >> report.md
+            fi
+          done
 
           cat report.md
           echo report=$(base64 -w0 report.md) >> "$GITHUB_OUTPUT"
+          echo success=$(jq -s 'all(.[].result[]; .failed==[])' reports/*.json) >> "$GITHUB_OUTPUT"
 
   post-result:
     runs-on: ubuntu-latest
     needs: [report]
-    if: ${{ inputs.post-result }}
+    if: ${{ inputs.post-result || inputs.approve-on-success }}
     environment: post-result
 
     steps:
@@ -247,9 +261,19 @@ jobs:
         run: echo ${{ needs.report.outputs.report }} | base64 -d > report.md
 
       - name: post comment
+        if: ${{ inputs.post-result }}
         run: |
           if [[ -n "$GH_TOKEN" ]]; then
             gh pr -R NixOS/nixpkgs comment ${{ inputs.pr }} -F report.md
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: approve pull request
+        if: ${{ inputs.approve-on-success && needs.report.outputs.success == 'true' }}
+        run: |
+          if [[ -n "$GH_TOKEN" ]]; then
+            gh pr -R NixOS/nixpkgs review ${{ inputs.pr }} --approve -b "Approved automatically following the successful run of \`nixpkgs-review\`." || true
           fi
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
