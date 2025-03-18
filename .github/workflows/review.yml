@@ -91,6 +91,9 @@ jobs:
 
       - name: install nix
         uses: DeterminateSystems/nix-installer-action@v16
+        with:
+          extra-conf: |
+            sandbox = true
 
       - name: install packages
         run: |
