@@ -26,13 +26,23 @@ on:
       x86_64-darwin:
         description: "Run on x86_64-darwin"
         required: true
-        type: boolean
-        default: true
+        type: choice
+        default: yes_sandbox_true
+        options:
+          - 'no'
+          - yes_sandbox_false
+          - yes_sandbox_relaxed
+          - yes_sandbox_true
       aarch64-darwin:
         description: "Run on aarch64-darwin"
         required: true
-        type: boolean
-        default: true
+        type: choice
+        default: yes_sandbox_true
+        options:
+          - 'no'
+          - yes_sandbox_false
+          - yes_sandbox_relaxed
+          - yes_sandbox_true
       local-eval:
         description: "Force local eval"
         required: true
@@ -72,8 +82,8 @@ jobs:
         exclude:
           - system: ${{ !inputs.x86_64-linux && 'x86_64-linux' || '' }}
           - system: ${{ !inputs.aarch64-linux && 'aarch64-linux' || '' }}
-          - system: ${{ !inputs.x86_64-darwin && 'x86_64-darwin' || '' }}
-          - system: ${{ !inputs.aarch64-darwin && 'aarch64-darwin' || '' }}
+          - system: ${{ inputs.x86_64-darwin == 'no' && 'x86_64-darwin' || '' }}
+          - system: ${{ inputs.aarch64-darwin == 'no' && 'aarch64-darwin' || '' }}
     runs-on: >-
       ${{ (matrix.system == 'x86_64-linux' && 'ubuntu-latest')
       || (matrix.system == 'aarch64-linux' && 'ubuntu-24.04-arm')
@@ -98,11 +108,16 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@v16
         with:
           extra-conf: |
-            sandbox = true
+            sandbox = ${{
+              (matrix.system == 'x86_64-darwin' && inputs.x86_64-darwin == 'yes_sandbox_false'
+                || matrix.system == 'aarch64-darwin' && inputs.aarch64-darwin == 'yes_sandbox_false') && 'false'
+              || (matrix.system == 'x86_64-darwin' && inputs.x86_64-darwin == 'yes_sandbox_relaxed'
+                || matrix.system == 'aarch64-darwin' && inputs.aarch64-darwin == 'yes_sandbox_relaxed') && 'relaxed'
+              || 'true' }}
 
       - name: install packages
         run: |
-          pkgs=(coreutils nixpkgs-review jq)
+          pkgs=(coreutils nixpkgs-review jq gnused)
           if [[ ${{ inputs.push-to-cache && vars.ATTIC_SERVER != '' && vars.ATTIC_CACHE != '' }} = true ]]; then
             pkgs+=(attic-client)
           elif [[ ${{ inputs.push-to-cache && vars.CACHIX_CACHE != '' }} = true ]]; then
@@ -208,6 +223,8 @@ jobs:
             echo fetch_cmd_${{ matrix.system }}=$(base64 -w0 fetch_cmd) >> "$GITHUB_OUTPUT"
           fi
           dir=~/.cache/nixpkgs-review/pr-${PR_NUMBER}
+          sandbox=$(nix config show sandbox)
+          sed -i '/^###/s/$/ (sandbox = '"$sandbox"')/' $dir/report.md
           cat $dir/report.md
           report=$(jq -c '.+{$md}' $dir/report.json --rawfile md $dir/report.md | base64 -w0)
           echo report_${{ matrix.system }}=$report >> "$GITHUB_OUTPUT"
