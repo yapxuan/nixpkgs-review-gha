@@ -153,7 +153,7 @@ jobs:
           elif [[ ${{ inputs.push-to-cache && vars.CACHIX_CACHE != '' }} = true ]]; then
             pkgs+=(cachix)
           fi
-          nix profile install -f packages.nix ${pkgs[@]}
+          nix profile add -f packages.nix ${pkgs[@]}
 
       - name: clone nixpkgs
         uses: actions/checkout@v4
