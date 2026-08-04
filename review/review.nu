@@ -117,7 +117,7 @@ open $reportJson
 | get result
 | let result
 
-if $env.IDENTIFY_UNSUPPORTED_PACKAGES == '1' {
+if $env.IDENTIFY_UNSUPPORTED_PACKAGES != '0' {
   gha group "identify unsupported packages" {
     cd nixpkgs
     if ($result.failed | is-empty) { return $result }
